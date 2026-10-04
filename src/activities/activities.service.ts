@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { CreateActivityDto } from './dto/create-activity.dto.js';
+import { UpdateActivityDto } from './dto/update-activity.dto.js';
 
 @Injectable()
 export class ActivitiesService {
@@ -26,18 +28,26 @@ export class ActivitiesService {
     },
   ];
 
+  private nextId = 4;
+
   getActivities() {
     return this.activities;
   }
 
   getActivity(id: number) {
-    return this.activities.find((activity) => activity.id === id);
+    const activity = this.activities.find((activity) => activity.id === id);
+
+    if (!activity) {
+      throw new NotFoundException(`Activity ${id} not found`);
+    }
+
+    return activity;
   }
 
-  createActivity(activity: any) {
+  createActivity(activity: CreateActivityDto) {
     const newActivity = {
-        id: this.activities.length + 1,
-        ...activity,
+      ...activity,
+      id: this.nextId++,
     };
 
     this.activities.push(newActivity);
@@ -45,11 +55,11 @@ export class ActivitiesService {
     return newActivity;
   }
 
-  updateActivity(id: number, updates: any) {
+  updateActivity(id: number, updates: UpdateActivityDto) {
     const activity = this.activities.find((activity) => activity.id === id);
 
     if (!activity) {
-        return undefined;
+      throw new NotFoundException(`Activity ${id} not found`);
     }
 
     Object.assign(activity, updates);
@@ -58,17 +68,14 @@ export class ActivitiesService {
   }
 
   deleteActivity(id: number) {
-    const index = this.activities.findIndex(
-        (activity) => activity.id === id,
-    );
+    const index = this.activities.findIndex((activity) => activity.id === id);
 
     if (index === -1) {
-        return undefined;
+      throw new NotFoundException(`Activity ${id} not found`);
     }
 
     const [deletedActivity] = this.activities.splice(index, 1);
 
     return deletedActivity;
   }
-
 }
