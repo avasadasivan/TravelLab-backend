@@ -45,7 +45,8 @@ export class TripsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  deleteTrip(@Param('id', ParseIntPipe) id: number) {
-    this.tripsService.deleteTrip(id);
+  async deleteTrip(@Param('id', ParseIntPipe) id: number) {
+    // Awaited so a 404 reaches the client; the deleted trip itself isn't sent.
+    await this.tripsService.deleteTrip(id);
   }
 }

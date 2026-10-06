@@ -1,0 +1,48 @@
+// Database schema. Change it, then run `npm run db:migrate` to create a
+// migration. See docs/api.md for the JSON shapes these tables back.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  // The backend is ESM with nodenext resolution, so relative imports need .js.
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Trip {
+  id         Int        @id @default(autoincrement())
+  name       String
+  // Bumped by the server on every update; clients send it back to detect
+  // conflicting edits.
+  version    Int        @default(1)
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+  activities Activity[]
+
+  @@map("trips")
+}
+
+model Activity {
+  id        Int      @id @default(autoincrement())
+  tripId    Int      @map("trip_id")
+  // Deleting a trip deletes its activities in the database itself.
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  title     String
+  // Local wall-clock time at the destination, with no time zone attached:
+  // a 10:00 visit stays 10:00 for every viewer. timeZone says where it is.
+  startTime DateTime @map("start_time") @db.Timestamp(0)
+  timeZone  String   @map("time_zone")
+  location  String
+  notes     String?
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // The trip page asks for one trip's activities in start time order.
+  @@index([tripId, startTime])
+  @@map("activities")
+}

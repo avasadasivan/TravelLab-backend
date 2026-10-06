@@ -1,6 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
+import { PrismaModule } from '../prisma/prisma.module.js';
 import { validationPipeOptions } from '../validation.js';
 import { ActivitiesModule } from './activities.module.js';
 
@@ -17,7 +18,7 @@ describe('Activities request validation', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      imports: [ActivitiesModule],
+      imports: [PrismaModule, ActivitiesModule],
     }).compile();
 
     app = module.createNestApplication();
@@ -120,7 +121,9 @@ describe('Activities request validation', () => {
   });
 
   it('404s when listing activities for an unknown trip', () => {
-    return request(app.getHttpServer()).get('/trips/999/activities').expect(404);
+    return request(app.getHttpServer())
+      .get('/trips/999/activities')
+      .expect(404);
   });
 
   it('rejects a non-numeric id param', () => {
