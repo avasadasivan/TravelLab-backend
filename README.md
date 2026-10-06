@@ -57,6 +57,15 @@ npm run start:dev     # http://localhost:3001
 
 After changing `prisma/schema.prisma`, run `npm run db:migrate` to create a migration.
 
+## Deploy
+
+- **Database:** Neon (hosted Postgres 17)
+- **Backend:** Render web service
+  - Build: `npm ci && npm run build`
+  - Start: `npm run start:prod`, which applies pending migrations, then starts the server
+  - Env: `DATABASE_URL` (Neon pooled), `DIRECT_DATABASE_URL` (Neon direct, for migrations), `FRONTEND_ORIGIN` (the deployed web app's URL)
+- **Web app:** Vercel, with `NEXT_PUBLIC_API_BASE` set to the Render URL
+
 ## Test
 
 Tests use their own database (`travellab_test`), which they wipe before every test. Postgres must be running (`npm run db:up`).

@@ -6,11 +6,12 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
+import { checkOrigin } from '../cors.js';
 import { ActivitiesService } from '../activities/activities.service.js';
 import { TripsService } from '../trips/trips.service.js';
 
 // Sockets need their own CORS setting: enableCors in main.ts only covers REST.
-@WebSocketGateway({ cors: { origin: 'http://localhost:3000' } })
+@WebSocketGateway({ cors: { origin: checkOrigin } })
 export class RealtimeGateway {
   // Nest fills this in with the running socket.io server.
   @WebSocketServer() server!: Server;
