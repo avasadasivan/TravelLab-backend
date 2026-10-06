@@ -10,5 +10,7 @@ import { ActivitiesService } from './activities.service.js';
   imports: [TripsModule],
   controllers: [TripActivitiesController, ActivitiesController],
   providers: [ActivitiesService],
+  // RealtimeModule subscribes to activity changes.
+  exports: [ActivitiesService],
 })
 export class ActivitiesModule {}
