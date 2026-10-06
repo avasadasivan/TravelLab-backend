@@ -8,6 +8,12 @@ export type Trip = {
   version: number;
 };
 
+export type ChangeListener = (
+  tripId: number,
+  event: string,
+  payload: object,
+) => void;
+
 @Injectable()
 export class TripsService {
   private trips: Trip[] = [
@@ -15,6 +21,21 @@ export class TripsService {
   ];
 
   private nextId = 2;
+
+  // Live sync: the gateway subscribes here and forwards each change to the
+  // trip's room. The service doesn't know sockets exist, which keeps it
+  // easy to unit test.
+  private changeListeners: ChangeListener[] = [];
+
+  onChange(listener: ChangeListener) {
+    this.changeListeners.push(listener);
+  }
+
+  private announce(tripId: number, event: string, payload: object) {
+    for (const listener of this.changeListeners) {
+      listener(tripId, event, payload);
+    }
+  }
 
   // Things that need to clean up after a deleted trip (right now: activities)
   // register here. Activities depend on trips, not the other way round, so a
@@ -56,6 +77,7 @@ export class TripsService {
       trip.name = updates.name;
     }
     trip.version += 1;
+    this.announce(trip.id, 'trip.updated', trip);
     return trip;
   }
 
@@ -68,6 +90,7 @@ export class TripsService {
     for (const listener of this.tripDeletedListeners) {
       listener(deleted.id);
     }
+    this.announce(deleted.id, 'trip.deleted', { id: deleted.id });
     return deleted;
   }
 }

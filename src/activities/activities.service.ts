@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { TripsService } from '../trips/trips.service.js';
+import { ChangeListener, TripsService } from '../trips/trips.service.js';
 import { CreateActivityDto } from './dto/create-activity.dto.js';
 import { UpdateActivityDto } from './dto/update-activity.dto.js';
 
@@ -60,6 +60,21 @@ export class ActivitiesService {
 
   private nextId = 4;
 
+  // Live sync: the gateway subscribes here and forwards each change to the
+  // trip's room. The service doesn't know sockets exist, which keeps it
+  // easy to unit test.
+  private changeListeners: ChangeListener[] = [];
+
+  onChange(listener: ChangeListener) {
+    this.changeListeners.push(listener);
+  }
+
+  private announce(tripId: number, event: string, payload: object) {
+    for (const listener of this.changeListeners) {
+      listener(tripId, event, payload);
+    }
+  }
+
   getActivitiesForTrip(tripId: number): Activity[] {
     // Throws 404 if the trip doesn't exist, so an unknown trip never looks
     // like a trip with no activities.
@@ -90,6 +105,7 @@ export class ActivitiesService {
       version: 1,
     };
     this.activities.push(activity);
+    this.announce(tripId, 'activity.created', activity);
     return activity;
   }
 
@@ -114,6 +130,7 @@ export class ActivitiesService {
       activity.notes = updates.notes;
     }
     activity.version += 1;
+    this.announce(activity.tripId, 'activity.updated', activity);
     return activity;
   }
 
@@ -123,6 +140,11 @@ export class ActivitiesService {
       throw new NotFoundException(`Activity ${id} not found`);
     }
     const [deletedActivity] = this.activities.splice(index, 1);
+    // The contract's payload includes tripId so clients know which trip changed.
+    this.announce(deletedActivity.tripId, 'activity.deleted', {
+      id: deletedActivity.id,
+      tripId: deletedActivity.tripId,
+    });
     return deletedActivity;
   }
 }
