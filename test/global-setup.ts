@@ -6,6 +6,11 @@ import { testDatabaseUrl } from './database-url.js';
 export default function setup() {
   execSync('npx prisma migrate deploy', {
     stdio: 'inherit',
-    env: { ...process.env, DATABASE_URL: testDatabaseUrl },
+    // Both, so a DIRECT_DATABASE_URL in .env can't point migrations at dev data.
+    env: {
+      ...process.env,
+      DATABASE_URL: testDatabaseUrl,
+      DIRECT_DATABASE_URL: testDatabaseUrl,
+    },
   });
 }

@@ -8,6 +8,8 @@ export default defineConfig({
     seed: 'tsx prisma/seed.ts',
   },
   datasource: {
-    url: process.env['DATABASE_URL'],
+    // Migrations need a direct connection; hosted Postgres (Neon) gives a
+    // separate pooled URL for the app. Locally both are the same database.
+    url: process.env['DIRECT_DATABASE_URL'] ?? process.env['DATABASE_URL'],
   },
 });
