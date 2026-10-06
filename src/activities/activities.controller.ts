@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
@@ -12,23 +14,33 @@ import { ActivitiesService } from './activities.service.js';
 import { CreateActivityDto } from './dto/create-activity.dto.js';
 import { UpdateActivityDto } from './dto/update-activity.dto.js';
 
+// Listing and creating need to know which trip, so those paths are nested.
+@Controller('trips/:tripId/activities')
+export class TripActivitiesController {
+  constructor(private readonly activitiesService: ActivitiesService) {}
+
+  @Get()
+  getActivities(@Param('tripId', ParseIntPipe) tripId: number) {
+    return this.activitiesService.getActivitiesForTrip(tripId);
+  }
+
+  @Post()
+  createActivity(
+    @Param('tripId', ParseIntPipe) tripId: number,
+    @Body() activity: CreateActivityDto,
+  ) {
+    return this.activitiesService.createActivity(tripId, activity);
+  }
+}
+
+// One activity is findable by its own id, so these paths stay short.
 @Controller('activities')
 export class ActivitiesController {
   constructor(private readonly activitiesService: ActivitiesService) {}
 
-  @Get()
-  getActivities() {
-    return this.activitiesService.getActivities();
-  }
-
   @Get(':id')
   getActivity(@Param('id', ParseIntPipe) id: number) {
     return this.activitiesService.getActivity(id);
-  }
-
-  @Post()
-  createActivity(@Body() activity: CreateActivityDto) {
-    return this.activitiesService.createActivity(activity);
   }
 
   @Patch(':id')
@@ -40,7 +52,8 @@ export class ActivitiesController {
   }
 
   @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
   deleteActivity(@Param('id', ParseIntPipe) id: number) {
-    return this.activitiesService.deleteActivity(id);
+    this.activitiesService.deleteActivity(id);
   }
 }
