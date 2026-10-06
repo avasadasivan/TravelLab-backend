@@ -53,7 +53,8 @@ export class ActivitiesController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  deleteActivity(@Param('id', ParseIntPipe) id: number) {
-    this.activitiesService.deleteActivity(id);
+  async deleteActivity(@Param('id', ParseIntPipe) id: number) {
+    // Awaited so a 404 reaches the client; the deleted activity isn't sent.
+    await this.activitiesService.deleteActivity(id);
   }
 }

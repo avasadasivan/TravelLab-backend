@@ -8,23 +8,58 @@ This repo is the backend API.
 
 ## Architecture
 
+```
+Next.js web app ─┐                       ┌─ REST (all reads and writes)
+                 ├──► NestJS backend ────┤
+iOS app ─────────┘                       └─ Socket.IO (announces changes, one room per trip)
+```
+
 - One NestJS backend serving two clients: a Next.js web app and an iOS app
-- REST endpoints for reads and writes
-- Socket.IO to push changes to everyone on a trip in real time (planned)
-- Version numbers on each record to catch conflicting edits (planned)
+- REST endpoints for reads and writes, documented in [docs/api.md](docs/api.md) as a contract both clients code against
+- Socket.IO pushes every change to everyone viewing that trip
+- Version numbers on each record, so conflicting edits can be detected (rejecting stale edits is planned)
+
+## Key decisions
+
+- **REST writes, socket announcements.** Every change goes through the REST API, and the socket only announces it. Validation, 404s and versions live in one place, the same for web and iOS.
+- **One room per trip.** A client joins `trip:<id>` and only hears about that trip, so a change never reaches users who aren't looking at it.
+- **Observer pattern between services and the gateway.** The trips and activities services announce changes without knowing sockets exist. The gateway subscribes and forwards. The dependency points one way, and adding live sync didn't change a single unit test.
+- **Clients refetch instead of patching state.** On an event, the web app reloads the trip's data. It's simple and can't drift out of sync, at the cost of one extra request per change.
+- **Reconnects rejoin and refetch.** Rooms don't survive a dropped connection, so on every connect the client rejoins and refetches, catching anything it missed while offline. Found by restarting the server under open tabs.
+- **Ids never reused.** A counter that only goes up, like a Postgres sequence, so a deleted id can't come back and confuse another client.
+- **Postgres with local wall-clock times.** Activity times are stored as `timestamp without time zone` plus an IANA zone, so a 10:00 visit stays 10:00 for every viewer. Deleting a trip cascades to its activities in the database itself.
+- **Strict request validation.** Unknown fields are rejected, which closes mass-assignment holes like a client sending its own `id`.
+
+The reasoning behind each block is in [DEVLOG.md](DEVLOG.md).
+
+## What's next
+
+- Auth, so only a trip's members can read it or join its room
+- Reject stale edits with `409` using the version numbers
+- Multiple server instances (Socket.IO Redis adapter)
 
 ## Tech stack
 
-NestJS 12, TypeScript, Vitest, class-validator, GitHub Actions
+NestJS 12, TypeScript, PostgreSQL 17, Prisma 7, Socket.IO, Docker Compose, Vitest, class-validator, GitHub Actions
 
 ## Run locally
 
+Needs Node 24 and Docker Desktop (running).
+
 ```bash
-npm ci
-npm run start:dev   # http://localhost:3001
+cp .env.example .env
+npm ci                # also generates the Prisma client
+npm run db:up         # Postgres 17 in Docker
+npx prisma migrate deploy
+npm run db:seed       # sample Paris trip
+npm run start:dev     # http://localhost:3001
 ```
 
+After changing `prisma/schema.prisma`, run `npm run db:migrate` to create a migration.
+
 ## Test
+
+Tests use their own database (`travellab_test`), which they wipe before every test. Postgres must be running (`npm run db:up`).
 
 ```bash
 npm test

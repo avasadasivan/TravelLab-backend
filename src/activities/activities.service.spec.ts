@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { TripsService } from '../trips/trips.service.js';
 import { ActivitiesService } from './activities.service.js';
 
@@ -17,7 +18,7 @@ describe('ActivitiesService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ActivitiesService, TripsService],
+      providers: [ActivitiesService, TripsService, PrismaService],
     }).compile();
 
     service = module.get(ActivitiesService);
@@ -28,78 +29,85 @@ describe('ActivitiesService', () => {
     expect(service).toBeDefined();
   });
 
-  it('gives a new activity a unique id after a delete', () => {
+  it('gives a new activity a unique id after a delete', async () => {
     // Arrange: delete the activity in the middle of the list
-    service.deleteActivity(2);
+    await service.deleteActivity(2);
 
     // Act: create a new activity
-    service.createActivity(1, newActivity);
+    await service.createActivity(1, newActivity);
 
     // Assert: no two activities share an id
-    const ids = service.getActivitiesForTrip(1).map((activity) => activity.id);
+    const ids = (await service.getActivitiesForTrip(1)).map(
+      (activity) => activity.id,
+    );
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('lists a trip activities in start time order', () => {
-    service.createActivity(1, { ...newActivity, startTime: '2026-11-03T08:00' });
+  it('lists a trip activities in start time order', async () => {
+    await service.createActivity(1, {
+      ...newActivity,
+      startTime: '2026-11-03T08:00',
+    });
 
-    const startTimes = service
-      .getActivitiesForTrip(1)
-      .map((activity) => activity.startTime);
+    const startTimes = (await service.getActivitiesForTrip(1)).map(
+      (activity) => activity.startTime,
+    );
 
     expect(startTimes).toEqual([...startTimes].sort());
   });
 
-  it('only lists activities belonging to the trip asked for', () => {
-    const otherTrip = trips.createTrip({ name: 'Tokyo' });
-    service.createActivity(otherTrip.id, newActivity);
+  it('only lists activities belonging to the trip asked for', async () => {
+    const otherTrip = await trips.createTrip({ name: 'Tokyo' });
+    await service.createActivity(otherTrip.id, newActivity);
 
-    const tripIds = service
-      .getActivitiesForTrip(1)
-      .map((activity) => activity.tripId);
+    const tripIds = (await service.getActivitiesForTrip(1)).map(
+      (activity) => activity.tripId,
+    );
 
     expect(tripIds.every((tripId) => tripId === 1)).toBe(true);
   });
 
-  it('deletes a trip activities along with the trip', () => {
-    trips.deleteTrip(1);
+  it('deletes a trip activities along with the trip', async () => {
+    await trips.deleteTrip(1);
 
-    expect(() => service.getActivity(1)).toThrow(NotFoundException);
+    await expect(service.getActivity(1)).rejects.toThrow(NotFoundException);
   });
 
-  it('leaves a field alone when the update leaves it out', () => {
-    const before = service.getActivity(1).title;
+  it('leaves a field alone when the update leaves it out', async () => {
+    const before = (await service.getActivity(1)).title;
 
-    const after = service.updateActivity(1, { notes: 'changed' });
+    const after = await service.updateActivity(1, { notes: 'changed' });
 
     expect(after.title).toBe(before);
     expect(after.notes).toBe('changed');
   });
 
-  it('bumps the version on every update', () => {
-    const before = service.getActivity(1).version;
+  it('bumps the version on every update', async () => {
+    const before = (await service.getActivity(1)).version;
 
-    const after = service.updateActivity(1, { notes: 'changed' });
+    const after = await service.updateActivity(1, { notes: 'changed' });
 
     expect(after.version).toBe(before + 1);
   });
 
-  it('getActivity throws NotFound for an unknown id', () => {
-    expect(() => service.getActivity(999)).toThrow(NotFoundException);
+  it('getActivity throws NotFound for an unknown id', async () => {
+    await expect(service.getActivity(999)).rejects.toThrow(NotFoundException);
   });
 
-  it('updateActivity throws NotFound for an unknown id', () => {
-    expect(() => service.updateActivity(999, { title: 'x' })).toThrow(
+  it('updateActivity throws NotFound for an unknown id', async () => {
+    await expect(service.updateActivity(999, { title: 'x' })).rejects.toThrow(
       NotFoundException,
     );
   });
 
-  it('deleteActivity throws NotFound for an unknown id', () => {
-    expect(() => service.deleteActivity(999)).toThrow(NotFoundException);
+  it('deleteActivity throws NotFound for an unknown id', async () => {
+    await expect(service.deleteActivity(999)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
-  it('createActivity throws NotFound for an unknown trip', () => {
-    expect(() => service.createActivity(999, newActivity)).toThrow(
+  it('createActivity throws NotFound for an unknown trip', async () => {
+    await expect(service.createActivity(999, newActivity)).rejects.toThrow(
       NotFoundException,
     );
   });

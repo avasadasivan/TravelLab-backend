@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { isRecordNotFound, PrismaService } from '../prisma/prisma.service.js';
 import { CreateTripDto } from './dto/create-trip.dto.js';
 import { UpdateTripDto } from './dto/update-trip.dto.js';
 
@@ -14,13 +15,12 @@ export type ChangeListener = (
   payload: object,
 ) => void;
 
+// Only the fields in the API contract; createdAt/updatedAt stay internal.
+const tripFields = { id: true, name: true, version: true } as const;
+
 @Injectable()
 export class TripsService {
-  private trips: Trip[] = [
-    { id: 1, name: 'Paris spring break', version: 1 },
-  ];
-
-  private nextId = 2;
+  constructor(private readonly prisma: PrismaService) {}
 
   // Live sync: the gateway subscribes here and forwards each change to the
   // trip's room. The service doesn't know sockets exist, which keeps it
@@ -37,60 +37,64 @@ export class TripsService {
     }
   }
 
-  // Things that need to clean up after a deleted trip (right now: activities)
-  // register here. Activities depend on trips, not the other way round, so a
-  // subscription keeps the dependency one-way. Postgres does this with
-  // ON DELETE CASCADE once the data moves into a real database.
-  private tripDeletedListeners: ((tripId: number) => void)[] = [];
-
-  onTripDeleted(listener: (tripId: number) => void) {
-    this.tripDeletedListeners.push(listener);
+  getTrips(): Promise<Trip[]> {
+    return this.prisma.trip.findMany({
+      select: tripFields,
+      orderBy: { id: 'asc' },
+    });
   }
 
-  getTrips(): Trip[] {
-    return this.trips;
-  }
-
-  getTrip(id: number): Trip {
-    const trip = this.trips.find((trip) => trip.id === id);
+  async getTrip(id: number): Promise<Trip> {
+    const trip = await this.prisma.trip.findUnique({
+      where: { id },
+      select: tripFields,
+    });
     if (!trip) {
       throw new NotFoundException(`Trip ${id} not found`);
     }
     return trip;
   }
 
-  createTrip(dto: CreateTripDto): Trip {
-    const trip: Trip = {
-      id: this.nextId++,
-      name: dto.name,
-      version: 1,
-    };
-    this.trips.push(trip);
-    return trip;
+  createTrip(dto: CreateTripDto): Promise<Trip> {
+    return this.prisma.trip.create({
+      data: { name: dto.name },
+      select: tripFields,
+    });
   }
 
-  updateTrip(id: number, updates: UpdateTripDto): Trip {
-    const trip = this.getTrip(id);
-    // Assign field by field so `version` from the request body can't overwrite
-    // the server's own version number.
-    if (updates.name !== undefined) {
-      trip.name = updates.name;
+  async updateTrip(id: number, updates: UpdateTripDto): Promise<Trip> {
+    try {
+      const trip = await this.prisma.trip.update({
+        where: { id },
+        // Only the fields we allow, so `version` from the request body can't
+        // overwrite the server's own version number. Prisma skips undefined.
+        data: { name: updates.name, version: { increment: 1 } },
+        select: tripFields,
+      });
+      this.announce(trip.id, 'trip.updated', trip);
+      return trip;
+    } catch (err) {
+      if (isRecordNotFound(err)) {
+        throw new NotFoundException(`Trip ${id} not found`);
+      }
+      throw err;
     }
-    trip.version += 1;
-    this.announce(trip.id, 'trip.updated', trip);
-    return trip;
   }
 
-  deleteTrip(id: number): Trip {
-    const index = this.trips.findIndex((trip) => trip.id === id);
-    if (index === -1) {
-      throw new NotFoundException(`Trip ${id} not found`);
+  async deleteTrip(id: number): Promise<Trip> {
+    try {
+      // The database deletes the trip's activities too (ON DELETE CASCADE).
+      const deleted = await this.prisma.trip.delete({
+        where: { id },
+        select: tripFields,
+      });
+      this.announce(deleted.id, 'trip.deleted', { id: deleted.id });
+      return deleted;
+    } catch (err) {
+      if (isRecordNotFound(err)) {
+        throw new NotFoundException(`Trip ${id} not found`);
+      }
+      throw err;
     }
-    const [deleted] = this.trips.splice(index, 1);
-    for (const listener of this.tripDeletedListeners) {
-      listener(deleted.id);
-    }
-    this.announce(deleted.id, 'trip.deleted', { id: deleted.id });
-    return deleted;
   }
 }

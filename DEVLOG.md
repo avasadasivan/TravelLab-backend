@@ -45,3 +45,27 @@
 - No membership check on `trip.join`: anyone can join any trip's room until there's auth.
 - Single server only. Rooms live in memory, so running several backend instances would need the Socket.IO Redis adapter.
 - Events sent while a client is disconnected are missed. Handled: on every `connect` (including reconnects), the web app rejoins the trip's room and refetches. Found this when the backend restarted under open tabs: they reconnected but were no longer in the room, so they heard nothing.
+
+## 2026-10-06: Postgres
+
+**What happened**
+- Trips and activities lived in arrays in memory, so every backend restart (including every save in watch mode) wiped them.
+
+**What I chose**
+- Postgres 17 in Docker (`docker-compose.yml`), with Prisma 7 as the ORM and the `pg` driver adapter.
+- Schema: `trips` and `activities`, with `activities.trip_id` a foreign key `ON DELETE CASCADE`. The cascade replaced the in-memory `onTripDeleted` listener.
+- An index on `(trip_id, start_time)`, which is exactly the trip page's query: one trip's activities in time order.
+- `start_time` is `timestamp without time zone` holding the local wall-clock time, next to an IANA `time_zone` column (e.g. `Europe/Paris`).
+- `version` lives in the database and is bumped on every update, ready for the 409 stale-edit check.
+- Tests run against a separate `travellab_test` database. It gets migrated once, then wiped and reseeded before every test (`TRUNCATE ... RESTART IDENTITY`). CI starts its own Postgres container.
+
+**Why**
+- Prisma: type-safe queries generated from the schema, and versioned SQL migrations checked into git, so every machine and CI builds the same tables. TypeORM was the alternative. Prisma's schema file is easier to read, and its migrations are plain SQL.
+- Cascade in the database: the rule holds no matter which code path deletes a trip, and it can't be forgotten.
+- Local time instead of UTC: a 10:00 Louvre visit is 10:00 in Paris for everyone. If I stored UTC, a viewer in another zone, or a daylight-saving change, could shift it. The zone column keeps the information needed to convert to an absolute time if that's ever needed (e.g. reminders).
+- Docker Compose: one command gives anyone (my iOS teammate, CI) an identical database, with nothing to install by hand.
+- Separate test database: tests can wipe it freely without touching dev data. A guard refuses to wipe any database whose name doesn't end in `_test`.
+
+**Open**
+- Concurrent edits still last-write-wins. Next: reject a PATCH whose `version` is stale with a 409 (`UPDATE ... WHERE id = ? AND version = ?`).
+- Test files run one at a time because they share a database. That's fine at this size.

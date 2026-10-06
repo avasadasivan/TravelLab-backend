@@ -1,0 +1,23 @@
+# Local Postgres for development and tests: `npm run db:up`.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: travellab
+      POSTGRES_PASSWORD: travellab
+      POSTGRES_DB: travellab
+    ports:
+      - '5432:5432'
+    volumes:
+      # Named volume, so the data survives `docker compose down` and restarts.
+      - travellab-data:/var/lib/postgresql/data
+      # Runs once, when the volume is first created: makes the test database.
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U travellab -d travellab']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  travellab-data:
