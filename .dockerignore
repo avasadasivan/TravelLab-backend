@@ -1,0 +1,12 @@
+# Rebuilt inside the image, or never belongs in it.
+node_modules
+dist
+src/generated
+coverage
+*.tsbuildinfo
+.git
+.github
+.env
+.env.*
+!.env.example
+*.log

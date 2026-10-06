@@ -69,3 +69,11 @@
 **Open**
 - Concurrent edits still last-write-wins. Next: reject a PATCH whose `version` is stale with a 409 (`UPDATE ... WHERE id = ? AND version = ?`).
 - Test files run one at a time because they share a database. That's fine at this size.
+
+## 2026-10-06: Finishing touches
+
+- **Activities grouped by day (web).** The trip page shows a heading per date ("Tue, Nov 3"). The API already sorts by `startTime`, so grouping is a single pass over the list, keyed by the date part of the local time string. No date library and no time-zone math, because the times are already local.
+- **Share link (web).** A "Copy link" button copies the trip URL. With no accounts yet, the URL is the access control: anyone with it can view and edit, and the page says so. If the browser blocks the clipboard (it needs https or localhost), the page shows the URL to copy by hand.
+- **Dockerfile (API).** Multi-stage build: the first stage installs everything, generates the Prisma client, compiles, then prunes dev dependencies. The runtime stage copies only `dist`, the pruned `node_modules` and the Prisma files, and runs as the non-root `node` user. It starts the same way as Render: `prisma migrate deploy`, then the server. `npm run docker:up` runs Postgres plus the API; `npm run db:up` still starts only Postgres.
+  - Bug found while testing: npm skipped Prisma's install script, so the migration engine was missing, and at startup the non-root user couldn't download it. Fixed by fetching the engine during the build (`npx prisma version`) and installing OpenSSL so Prisma picks the right engine. `prisma` moved to dependencies, because migrations run in production.
+- **Open:** the image is ~880 MB. Smaller options are an Alpine base, or Prisma's compiled engines only.
