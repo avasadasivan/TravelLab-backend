@@ -17,7 +17,7 @@ This repo is the **backend API** (NestJS + PostgreSQL + Socket.IO). The web app 
 ## Features
 
 - Trips with a day-by-day itinerary of activities (time, place, notes)
-- Real-time sync: every create, edit and delete reaches everyone viewing the trip, with a live connection indicator
+- Real-time sync: every create, edit and delete reaches everyone viewing the trip, with a live connection indicator. **Load-tested on the production deployment with 1,000 simultaneous users (200 trips of 5): 100% of updates delivered, each edit reaching every viewer within 75 ms at p95** ([method and results](docs/load-test.md))
 - Simultaneous edits never silently overwrite each other: optimistic concurrency with row versioning returns `409` on stale writes, and the web app shows "someone else changed this" with both versions
 - Share a trip by copying its link
 - One API shared by the web app and the iOS app, defined in a written contract ([docs/api.md](docs/api.md))
@@ -56,7 +56,6 @@ The reasoning behind each block is in [DEVLOG.md](DEVLOG.md).
 
 ## What's next
 
-- Load-test many simultaneous users and measure how fast an edit reaches everyone
 - End-to-end tests in CI with two browsers
 - Accounts, invite links and live presence, so only a trip's members can read it or join its room
 - Multiple server instances (Socket.IO Redis adapter)
@@ -105,4 +104,7 @@ npm run test:e2e   # 5 end-to-end tests that boot the whole app
 
 # Lost-update stress test against a running server (defaults: 50 clients x 20 edits)
 npm run stress:concurrency
+
+# Live-sync latency load test (defaults: 500 clients over 10 trips; set API= for a deployment)
+npm run load:test
 ```
