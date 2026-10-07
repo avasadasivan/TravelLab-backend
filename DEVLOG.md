@@ -137,3 +137,25 @@
 **Open**
 - Trips have the same check, but the web app has no rename-trip UI yet.
 - Under heavy contention on one record, retries pile up (16 per success at 50 clients on a single row). Real trips have few editors per activity, so that's fine; a queue or a merge strategy would be the next step if it weren't.
+
+## 2026-10-07: Load test (how fast does an edit reach everyone?)
+
+**What happened**
+- "Real-time" was a claim without a number. I wanted to measure how fast an edit reaches everyone viewing a trip, and how many simultaneous viewers the setup handles.
+
+**What I chose**
+- `scripts/load-test.ts` (`npm run load:test`): connects N real Socket.IO clients spread over several temporary trips, edits each trip's activity over REST, and times **save sent → each client receives `activity.updated`**, plus **save → the last viewer has it**. Both timestamps come from the same process, so there's no clock skew.
+- Ran it locally (up to 2,000 clients, and 500 on one trip as the worst case) and against **production** (Render free tier + Neon), up to 1,000 clients. Full tables are in `docs/load-test.md`.
+
+**Results**
+- Production, 1,000 clients over 200 trips of 5 (a realistic group size): **5,000/5,000 updates delivered; reaches everyone in 56 ms median, 75 ms p95**. With 20 bigger trips of ~50: the same 75 ms p95.
+- "1,000 simultaneous users" measures load on the server across the whole app (many groups at once), not one giant trip.
+- Local, 2,000 clients: 40,000/40,000 delivered, reaches everyone in 54 ms p95.
+
+**Why it looks like this**
+- Most of the production delay is the internet round trip plus the Postgres write; the room broadcast itself is cheap. Rooms keep the fan-out per trip small.
+- The tail (hundreds of ms) is the free instance's shared CPU.
+
+**Open**
+- All clients ran from one laptop, so this is one network location.
+- To go past one server: the Socket.IO Redis adapter, so a broadcast on one instance reaches clients connected to another.
