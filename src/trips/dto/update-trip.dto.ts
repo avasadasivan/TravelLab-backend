@@ -6,10 +6,8 @@ export class UpdateTripDto {
   @IsNotEmpty()
   name?: string;
 
-  // Clients send the version they last saw. The server ignores it for now;
-  // the conflict check (409) comes in a later block. It has to be declared
-  // here anyway, because forbidNonWhitelisted rejects undeclared fields.
-  @IsOptional()
+  // Required: the version this edit is based on. If someone else saved first,
+  // it no longer matches and the server answers 409 instead of overwriting.
   @IsInt()
-  version?: number;
+  version: number;
 }

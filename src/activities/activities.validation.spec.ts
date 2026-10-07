@@ -91,6 +91,32 @@ describe('Activities request validation', () => {
       .expect(400);
   });
 
+  it('rejects an update body with no version', () => {
+    return request(app.getHttpServer())
+      .patch('/activities/1')
+      .send({ notes: 'Closed Tuesdays' })
+      .expect(400);
+  });
+
+  it('answers 409 with the current activity when the version is stale', async () => {
+    await request(app.getHttpServer())
+      .patch('/activities/1')
+      .send({ notes: 'First save', version: 1 })
+      .expect(200);
+
+    return request(app.getHttpServer())
+      .patch('/activities/1')
+      .send({ notes: 'Second save', version: 1 })
+      .expect(409)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          statusCode: 409,
+          error: 'Conflict',
+          current: { id: 1, notes: 'First save', version: 2 },
+        });
+      });
+  });
+
   it('accepts an update body carrying the version it last saw', () => {
     return request(app.getHttpServer())
       .patch('/activities/1')
@@ -106,7 +132,7 @@ describe('Activities request validation', () => {
   it('clears the notes when sent null', () => {
     return request(app.getHttpServer())
       .patch('/activities/1')
-      .send({ notes: null })
+      .send({ notes: null, version: 1 })
       .expect(200)
       .expect((res) => {
         expect(res.body.notes).toBeNull();

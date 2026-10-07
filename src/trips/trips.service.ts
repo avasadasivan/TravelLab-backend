@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { isRecordNotFound, PrismaService } from '../prisma/prisma.service.js';
+import {
+  isRecordNotFound,
+  PrismaService,
+  staleVersion,
+} from '../prisma/prisma.service.js';
 import { CreateTripDto } from './dto/create-trip.dto.js';
 import { UpdateTripDto } from './dto/update-trip.dto.js';
 
@@ -64,8 +68,12 @@ export class TripsService {
 
   async updateTrip(id: number, updates: UpdateTripDto): Promise<Trip> {
     try {
+      // Optimistic concurrency: one atomic
+      //   UPDATE trips SET ..., version = version + 1 WHERE id = ? AND version = ?
+      // If someone else saved first, the version no longer matches, no row is
+      // updated, and nothing gets overwritten.
       const trip = await this.prisma.trip.update({
-        where: { id },
+        where: { id, version: updates.version },
         // Only the fields we allow, so `version` from the request body can't
         // overwrite the server's own version number. Prisma skips undefined.
         data: { name: updates.name, version: { increment: 1 } },
@@ -75,7 +83,15 @@ export class TripsService {
       return trip;
     } catch (err) {
       if (isRecordNotFound(err)) {
-        throw new NotFoundException(`Trip ${id} not found`);
+        // No row matched: either the trip is gone (404) or it changed (409).
+        const current = await this.prisma.trip.findUnique({
+          where: { id },
+          select: tripFields,
+        });
+        if (!current) {
+          throw new NotFoundException(`Trip ${id} not found`);
+        }
+        throw staleVersion(`Trip ${id} was changed by someone else`, current);
       }
       throw err;
     }

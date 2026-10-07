@@ -98,10 +98,9 @@ Deleting a trip also deletes its activities.
 
 ## Concurrent edits (`version`)
 
-Every trip and activity carries `version`. Clients must send it back on every `PATCH`.
+Every trip and activity carries `version`, which the server bumps on every update. Clients must send the version their edit is based on with every `PATCH` (a `PATCH` without it is a `400`).
 
-- **Now:** the server accepts `version` and ignores it.
-- **Planned:** if `version` doesn't match the current one, the server rejects the edit with `409 Conflict` and the current record, so the app can reload and let the user retry:
+If `version` doesn't match the current one, someone else saved first. The server rejects the edit with `409 Conflict` and the current record, so the app can show it and let the user choose what to keep:
 
 ```json
 {
@@ -112,7 +111,9 @@ Every trip and activity carries `version`. Clients must send it back on every `P
 }
 ```
 
-Sending `version` from day one means the iOS app won't need an update when the check is switched on.
+To keep your changes anyway, send the `PATCH` again with `current.version`. The check is a single atomic `UPDATE ... WHERE id = ? AND version = ?`, so two simultaneous saves from the same version can never both succeed.
+
+**Tip for clients:** remember the version from when the user *started* editing. If you use whatever version is on screen when they press Save, a live-sync refresh during editing would turn a stale edit into a silent overwrite.
 
 ## Errors
 
@@ -128,7 +129,7 @@ Every error uses the same shape (NestJS default):
 |---|---|
 | 400 | Body fails validation, has unknown fields, or the id isn't a number |
 | 404 | No trip or activity with that id |
-| 409 | Stale `version` (planned) |
+| 409 | Stale `version`: someone else saved first (body includes `current`) |
 | 500 | Server bug |
 
 ## Live updates (Planned)

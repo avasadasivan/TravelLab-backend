@@ -112,3 +112,28 @@
 
 **Lesson**
 - A test suite CI doesn't run rots silently. If it's worth having, it's worth running on every pull request.
+
+## 2026-10-07: Optimistic concurrency (no more lost updates)
+
+**What happened**
+- Two people could edit the same activity at the same time and the last save silently won. The other person's change was gone with no warning (a "lost update"). The `version` column existed, but nothing checked it.
+
+**What I chose**
+- **Optimistic concurrency with row versioning.** `PATCH` now requires the `version` the edit is based on (400 without it). The save is one atomic `UPDATE ... SET ..., version = version + 1 WHERE id = ? AND version = ?`, using Prisma's `update` with `{ id, version }` in `where`. If no row matches, a follow-up read tells the two cases apart: the row is gone (404), or it changed (409 with the current record in the body).
+- **Web app:** on 409 the edit form stays open with the user's text, and shows "Someone else changed this activity" with their version: **Keep my changes** (re-saves on top of their version, on purpose this time) or **Use their version**.
+- **Subtle bug avoided:** the form remembers the version from when editing *started*. Live sync refreshes the activity while you type, so sending the version currently on screen would have quietly turned a stale edit into an overwrite.
+- **Tests:**
+  - unit tests for a stale edit (409, and nothing overwritten);
+  - two simultaneous saves from the same version (exactly one wins);
+  - API tests for a missing version (400) and the 409 body;
+  - an e2e test where 10 clients each add 5 to a shared counter with retries, and the final count must be exactly 50.
+- **Stress test** (`npm run stress:concurrency`, against a running server): 50 clients, each doing read → add 1 → save with retry on 409, on the same activity. Result: **1,000 successful edits, 16,579 stale writes rejected and retried, final counter 1,000, 0 lost updates** (local Postgres, ~98 s).
+
+**Why**
+- *Optimistic* because conflicts are rare and records are small. Locking a row while someone edits (pessimistic) would block everyone else and needs lock timeouts. The version check costs nothing when there's no conflict.
+- The check lives in the database's `WHERE`, not in "read, compare, then write" code, so there's no gap between checking and writing where another save could sneak in.
+- Not a CRDT: CRDTs merge concurrent edits automatically and shine for free-form text that several people type into at once. For small structured records, rejecting stale writes and letting the user decide is simpler and easier to reason about. I'd reach for a CRDT (e.g. Yjs) for shared trip notes.
+
+**Open**
+- Trips have the same check, but the web app has no rename-trip UI yet.
+- Under heavy contention on one record, retries pile up (16 per success at 50 clients on a single row). Real trips have few editors per activity, so that's fine; a queue or a merge strategy would be the next step if it weren't.

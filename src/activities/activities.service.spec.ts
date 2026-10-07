@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { TripsService } from '../trips/trips.service.js';
@@ -76,7 +76,10 @@ describe('ActivitiesService', () => {
   it('leaves a field alone when the update leaves it out', async () => {
     const before = (await service.getActivity(1)).title;
 
-    const after = await service.updateActivity(1, { notes: 'changed' });
+    const after = await service.updateActivity(1, {
+      notes: 'changed',
+      version: 1,
+    });
 
     expect(after.title).toBe(before);
     expect(after.notes).toBe('changed');
@@ -85,9 +88,50 @@ describe('ActivitiesService', () => {
   it('bumps the version on every update', async () => {
     const before = (await service.getActivity(1)).version;
 
-    const after = await service.updateActivity(1, { notes: 'changed' });
+    const after = await service.updateActivity(1, {
+      notes: 'changed',
+      version: before,
+    });
 
     expect(after.version).toBe(before + 1);
+  });
+
+  it('rejects a stale edit with 409 and the current activity', async () => {
+    await service.updateActivity(1, { title: 'Louvre (Sam)', version: 1 });
+
+    // Ava is still looking at version 1.
+    const error = await service
+      .updateActivity(1, { title: 'Louvre (Ava)', version: 1 })
+      .catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    const body = (error as ConflictException).getResponse() as {
+      current: { title: string; version: number };
+    };
+    expect(body.current).toMatchObject({ title: 'Louvre (Sam)', version: 2 });
+    // Sam's edit survived.
+    expect((await service.getActivity(1)).title).toBe('Louvre (Sam)');
+  });
+
+  it('lets exactly one of two simultaneous edits win', async () => {
+    // Both start from version 1 and save at the same moment.
+    const results = await Promise.allSettled([
+      service.updateActivity(1, { title: 'Ava', version: 1 }),
+      service.updateActivity(1, { title: 'Sam', version: 1 }),
+    ]);
+
+    const won = results.filter((r) => r.status === 'fulfilled');
+    const lost = results.filter((r) => r.status === 'rejected');
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    expect((lost[0] as PromiseRejectedResult).reason).toBeInstanceOf(
+      ConflictException,
+    );
+    const saved = await service.getActivity(1);
+    expect(saved.version).toBe(2);
+    expect(saved.title).toBe(
+      (won[0] as PromiseFulfilledResult<{ title: string }>).value.title,
+    );
   });
 
   it('getActivity throws NotFound for an unknown id', async () => {
@@ -95,9 +139,9 @@ describe('ActivitiesService', () => {
   });
 
   it('updateActivity throws NotFound for an unknown id', async () => {
-    await expect(service.updateActivity(999, { title: 'x' })).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(
+      service.updateActivity(999, { title: 'x', version: 1 }),
+    ).rejects.toThrow(NotFoundException);
   });
 
   it('deleteActivity throws NotFound for an unknown id', async () => {

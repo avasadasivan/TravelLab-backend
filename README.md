@@ -18,9 +18,10 @@ This repo is the **backend API** (NestJS + PostgreSQL + Socket.IO). The web app 
 
 - Trips with a day-by-day itinerary of activities (time, place, notes)
 - Real-time sync: every create, edit and delete reaches everyone viewing the trip, with a live connection indicator
+- Simultaneous edits never silently overwrite each other: optimistic concurrency with row versioning returns `409` on stale writes, and the web app shows "someone else changed this" with both versions
 - Share a trip by copying its link
 - One API shared by the web app and the iOS app, defined in a written contract ([docs/api.md](docs/api.md))
-- 35 automated tests against a real PostgreSQL database (31 integration + 4 end-to-end), run in CI on every pull request
+- 40 automated tests against a real PostgreSQL database (35 integration + 5 end-to-end), run in CI on every pull request, plus a lost-update stress test: 50 clients making 1,000 concurrent edits to one activity, with 0 lost updates
 
 ## Architecture
 
@@ -35,7 +36,7 @@ What happens when someone adds an activity: the browser sends a REST `POST`, the
 - One NestJS backend serving two clients: a Next.js web app and an iOS app
 - REST endpoints for reads and writes, documented in [docs/api.md](docs/api.md) as a contract both clients code against
 - Socket.IO pushes every change to everyone viewing that trip
-- Version numbers on each record, so conflicting edits can be detected (rejecting stale edits is planned)
+- Version numbers on each record: a stale edit gets `409 Conflict` instead of overwriting someone else's change
 
 ## Key decisions
 
@@ -46,13 +47,15 @@ What happens when someone adds an activity: the browser sends a REST `POST`, the
 - **Reconnects rejoin and refetch.** Rooms don't survive a dropped connection, so on every connect the client rejoins and refetches, catching anything it missed while offline. Found by restarting the server under open tabs.
 - **Ids never reused.** A counter that only goes up, like a Postgres sequence, so a deleted id can't come back and confuse another client.
 - **Postgres with local wall-clock times.** Activity times are stored as `timestamp without time zone` plus an IANA zone, so a 10:00 visit stays 10:00 for every viewer. Deleting a trip cascades to its activities in the database itself.
+- **Optimistic concurrency for simultaneous edits.** Every edit carries the version it's based on, and the save is one atomic `UPDATE ... WHERE id = ? AND version = ?`. A stale write gets `409` with the current record instead of silently overwriting. No locks, so editing stays fast. Records are small and conflicts are rare, so this fits better than locking or a CRDT (which I'd use for free-form shared text).
+
+  ![Conflict panel](docs/screenshot-conflict.png)
 - **Strict request validation.** Unknown fields are rejected, which closes mass-assignment holes like a client sending its own `id`.
 
 The reasoning behind each block is in [DEVLOG.md](DEVLOG.md).
 
 ## What's next
 
-- Reject stale edits with `409` using the version numbers (optimistic concurrency)
 - Load-test many simultaneous users and measure how fast an edit reaches everyone
 - End-to-end tests in CI with two browsers
 - Accounts, invite links and live presence, so only a trip's members can read it or join its room
@@ -97,6 +100,9 @@ After changing `prisma/schema.prisma`, run `npm run db:migrate` to create a migr
 Tests use their own database (`travellab_test`), which they wipe before every test. Postgres must be running (`npm run db:up`).
 
 ```bash
-npm test           # 31 service and API tests
-npm run test:e2e   # 4 end-to-end tests that boot the whole app
+npm test           # 35 service and API tests
+npm run test:e2e   # 5 end-to-end tests that boot the whole app
+
+# Lost-update stress test against a running server (defaults: 50 clients x 20 edits)
+npm run stress:concurrency
 ```
