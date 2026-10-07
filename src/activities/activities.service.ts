@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { fromDbLocalTime, toDbLocalTime } from '../prisma/local-time.js';
-import { isRecordNotFound, PrismaService } from '../prisma/prisma.service.js';
+import {
+  isRecordNotFound,
+  PrismaService,
+  staleVersion,
+} from '../prisma/prisma.service.js';
 import { ChangeListener, TripsService } from '../trips/trips.service.js';
 import { CreateActivityDto } from './dto/create-activity.dto.js';
 import { UpdateActivityDto } from './dto/update-activity.dto.js';
@@ -108,8 +112,13 @@ export class ActivitiesService {
     updates: UpdateActivityDto,
   ): Promise<Activity> {
     try {
+      // Optimistic concurrency: one atomic
+      //   UPDATE activities SET ..., version = version + 1
+      //   WHERE id = ? AND version = ?
+      // If someone else saved first, the version no longer matches, no row is
+      // updated, and nothing gets overwritten.
       const row = await this.prisma.activity.update({
-        where: { id },
+        where: { id, version: updates.version },
         // Field by field, so `version` in the request body can't overwrite the
         // server's own version number. Prisma skips undefined fields, so a
         // field left out stays as it was; null clears the notes.
@@ -131,7 +140,19 @@ export class ActivitiesService {
       return activity;
     } catch (err) {
       if (isRecordNotFound(err)) {
-        throw new NotFoundException(`Activity ${id} not found`);
+        // No row matched: either the activity is gone (404) or it changed
+        // (409, with the current version so the client can show it).
+        const current = await this.prisma.activity.findUnique({
+          where: { id },
+          select: activityFields,
+        });
+        if (!current) {
+          throw new NotFoundException(`Activity ${id} not found`);
+        }
+        throw staleVersion(
+          `Activity ${id} was changed by someone else`,
+          toActivity(current),
+        );
       }
       throw err;
     }

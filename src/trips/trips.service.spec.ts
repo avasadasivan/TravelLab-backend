@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { TripsService } from './trips.service.js';
@@ -34,25 +34,30 @@ describe('TripsService', () => {
 
     const updated = await service.updateTrip(trip.id, {
       name: 'Tokyo in autumn',
+      version: 1,
     });
 
     expect(updated.name).toBe('Tokyo in autumn');
     expect(updated.version).toBe(2);
   });
 
-  it('ignores a version sent by the client', async () => {
+  it('rejects an edit based on a stale version with 409', async () => {
     const trip = await service.createTrip({ name: 'Tokyo' });
+    await service.updateTrip(trip.id, { name: 'Tokyo in autumn', version: 1 });
 
-    const updated = await service.updateTrip(trip.id, { version: 99 });
+    // Still based on version 1, but someone else already made it version 2.
+    const stale = service.updateTrip(trip.id, { name: 'Kyoto', version: 1 });
 
-    expect(updated.version).toBe(2);
+    await expect(stale).rejects.toThrow(ConflictException);
+    // Nothing was overwritten.
+    expect((await service.getTrip(trip.id)).name).toBe('Tokyo in autumn');
   });
 
   it('throws NotFound for an unknown id', async () => {
     await expect(service.getTrip(999)).rejects.toThrow(NotFoundException);
-    await expect(service.updateTrip(999, { name: 'x' })).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(
+      service.updateTrip(999, { name: 'x', version: 1 }),
+    ).rejects.toThrow(NotFoundException);
     await expect(service.deleteTrip(999)).rejects.toThrow(NotFoundException);
   });
 });

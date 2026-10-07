@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { ConflictException, Injectable, OnModuleDestroy } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Prisma, PrismaClient } from '../generated/prisma/client.js';
 
@@ -29,4 +29,15 @@ export function isRecordNotFound(err: unknown): boolean {
   return (
     err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025'
   );
+}
+
+// A stale edit: the record's version changed since the client loaded it.
+// The body includes the current record so the client can show it and retry.
+export function staleVersion(message: string, current: object) {
+  return new ConflictException({
+    statusCode: 409,
+    message,
+    error: 'Conflict',
+    current,
+  });
 }

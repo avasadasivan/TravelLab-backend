@@ -37,9 +37,8 @@ export class UpdateActivityDto {
   @IsString()
   notes?: string | null;
 
-  // Clients send the version they last saw. Ignored until the conflict check
-  // (409) lands, but declared so forbidNonWhitelisted doesn't reject it.
-  @IsOptional()
+  // Required: the version this edit is based on. If someone else saved first,
+  // it no longer matches and the server answers 409 instead of overwriting.
   @IsInt()
-  version?: number;
+  version: number;
 }
