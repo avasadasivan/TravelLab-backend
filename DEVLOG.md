@@ -77,3 +77,38 @@
 - **Dockerfile (API).** Multi-stage build: the first stage installs everything, generates the Prisma client, compiles, then prunes dev dependencies. The runtime stage copies only `dist`, the pruned `node_modules` and the Prisma files, and runs as the non-root `node` user. It starts the same way as Render: `prisma migrate deploy`, then the server. `npm run docker:up` runs Postgres plus the API; `npm run db:up` still starts only Postgres.
   - Bug found while testing: npm skipped Prisma's install script, so the migration engine was missing, and at startup the non-root user couldn't download it. Fixed by fetching the engine during the build (`npx prisma version`) and installing OpenSSL so Prisma picks the right engine. `prisma` moved to dependencies, because migrations run in production.
 - **Open:** the image is ~880 MB. Smaller options are an Alpine base, or Prisma's compiled engines only.
+
+## 2026-10-06: Deploy
+
+**What happened**
+- Put TravelLab online: the database on Neon, the backend on Render, and the web app on Vercel. Live at travellab-app.vercel.app.
+
+**What I chose**
+- Neon for managed Postgres 17. It gives two connection strings: **pooled** for the app (many short queries share a few connections), and **direct** for migrations (`prisma migrate deploy` needs one steady session). `prisma.config.ts` uses `DIRECT_DATABASE_URL` when it's set.
+- Render for the NestJS backend, because it supports long-lived WebSocket connections. The start command runs migrations, then the server (`npm run start:prod`), so the schema is always up to date before traffic arrives.
+- Vercel for the Next.js app. Pages render at request time (`dynamic = 'force-dynamic'`), so the build never needs the backend.
+- All settings come from environment variables: `DATABASE_URL`, `DIRECT_DATABASE_URL` and `FRONTEND_ORIGIN` on Render, and `NEXT_PUBLIC_API_BASE` on Vercel. No secrets in git.
+- CORS through one allow-list (`FRONTEND_ORIGIN`, comma-separated), shared by REST and Socket.IO.
+
+**Bugs and what they taught me**
+- **"Failed to fetch" on the live site.** Pages loaded, but adding an activity failed. The page's data is fetched by Vercel's *server*, where CORS doesn't apply, but the form's request comes from the *browser*, which enforces it, and the backend's allowed origin didn't exactly match the site's address. Fix: set `FRONTEND_ORIGIN` to the exact origin, and later to a list when I added a second domain. Lesson: know which requests come from the browser and which from the server.
+- **Seeding failed: "table trips does not exist".** I seeded before the deploy that runs migrations was merged. Lesson: schema first, then data.
+- **Cold starts.** The free Render plan sleeps after 15 idle minutes, so the first request can take about 50 seconds. I added a loading screen that says so, and a friendly error page with "Try again".
+
+**Open**
+- Render still builds with Node directly. Switching it to the existing Dockerfile would make the deploy match local Docker exactly.
+- Cold starts go away on a paid plan. Fine for a portfolio for now.
+
+## 2026-10-07: Fixed the end-to-end test suite
+
+**What happened**
+- `npm run test:e2e` was still the NestJS starter test. It expected "Hello World!" (the app says "Welcome to TravelLab!"), had a type error in its `supertest/types` import (open since Block 2), ran against whatever `DATABASE_URL` was set (the dev database), and CI never ran it, so nobody noticed it failing.
+
+**What I chose**
+- Fixed the import (`supertest/types.js`: with `nodenext` resolution and no `exports` map, subpath imports need the file extension) and the expected text.
+- Gave the e2e suite the same setup as the main tests: the `travellab_test` database, migrated once, then wiped and reseeded before every test.
+- Made it a real end-to-end check: it boots the whole app with the same validation pipe as `main.ts`, lists the seeded trip, creates an activity and checks the sort order, and checks that deleting a trip deletes its activities.
+- CI now runs `npm run test:e2e` after `npm test`.
+
+**Lesson**
+- A test suite CI doesn't run rots silently. If it's worth having, it's worth running on every pull request.
